@@ -3,12 +3,15 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 
 	"context"
+	"encoding/json"
+	"io/ioutil"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -18,20 +21,45 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
+type Keys struct {
+	Owner       string   `json:"owner"`
+	Masternodes []string `json:"masternodes"`
+}
+
 func main() {
-	fmt.Println("test")
+	jsonFile, err := os.Open("keys.json")
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer jsonFile.Close()
+	byteValue, _ := ioutil.ReadAll(jsonFile)
+
+	var result Keys
+	json.Unmarshal([]byte(byteValue), &result)
+
+	keys := result.Masternodes
+	owner := result.Owner
 	// Validator Smart Contract Code
-	pKey, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	addr := crypto.PubkeyToAddress(pKey.PublicKey)
-	contractBackend := backends.NewSimulatedBackend(core.GenesisAlloc{addr: {Balance: big.NewInt(1000000000)}})
-	transactOpts := bind.NewKeyedTransactor(pKey)
 
-	addr = crypto.PubkeyToAddress(pKey.PublicKey)
-	signers := []common.Address{addr}
-
+	signers := []common.Address{}
 	validatorCap := new(big.Int)
 	validatorCap.SetString("50000000000000000000000", 10)
-	validatorCaps := []*big.Int{validatorCap}
+	validatorCaps := []*big.Int{}
+
+	for _, key := range keys {
+		pKey, _ := crypto.HexToECDSA(key)
+		addr := crypto.PubkeyToAddress(pKey.PublicKey)
+		addr = crypto.PubkeyToAddress(pKey.PublicKey)
+		signers = append(signers, addr)
+		validatorCaps = append(validatorCaps, validatorCap)
+	}
+
+	pKey, _ := crypto.HexToECDSA(owner)
+	addr := crypto.PubkeyToAddress(pKey.PublicKey)
+	addr = crypto.PubkeyToAddress(pKey.PublicKey)
+
+	contractBackend := backends.NewSimulatedBackend(core.GenesisAlloc{addr: {Balance: big.NewInt(1000000000)}})
+	transactOpts := bind.NewKeyedTransactor(pKey)
 
 	validatorAddress, _, err := validatorContract.DeployValidator(transactOpts, contractBackend, signers, validatorCaps, addr)
 	if err != nil {
@@ -43,7 +71,7 @@ func main() {
 	ctx, cancel := context.WithDeadline(context.Background(), d)
 	defer cancel()
 	code, _ := contractBackend.CodeAt(ctx, validatorAddress, nil)
-	fmt.Println("contract code", common.ToHex(code))
+	fmt.Println(common.ToHex(code))
 
 	storage := make(map[common.Hash]common.Hash)
 	f := func(key, val common.Hash) bool {
@@ -51,7 +79,7 @@ func main() {
 		trim := bytes.TrimLeft(val.Bytes(), "\x00")
 		rlp.DecodeBytes(trim, &decode)
 		storage[key] = common.BytesToHash(decode)
-		fmt.Println("DecodeBytes", "value", val.String(), "decode", storage[key].String())
+		fmt.Println(val.String(), storage[key].String())
 		return true
 	}
 	contractBackend.ForEachStorageAt(ctx, validatorAddress, nil, f)
